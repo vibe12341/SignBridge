@@ -15,6 +15,12 @@ import {
   formatTabularTime,
   formatTranscriptExport,
 } from './transcriptUtils';
+import {
+  escapePdfString,
+  generateTranscriptPdfBytes,
+  wrapTextLines,
+} from './transcriptPdf';
+import { transcribeAudioClip } from '../../server/geminiBridge';
 
 test('audioPcm roundtrip preserves float32 signal within 16-bit quantization tolerance', () => {
   const input = new Float32Array([0, 0.5, -0.5, 0.95, -0.95]);
@@ -143,3 +149,94 @@ test('transcriptUtils filters turns and formats export cleanly', () => {
   assert.match(exported, /Hello, where is the pharmacy\?/);
   assert.match(exported, /Total Turns: 3/);
 });
+
+test('transcriptPdf escapes special characters, wraps text, and generates valid multi-page PDF bytes', () => {
+  assert.equal(
+    escapePdfString('Hello (world) \\ test \u2014 \u201Cok\u201D'),
+    'Hello \\(world\\) \\\\ test - "ok"'
+  );
+
+  const wrapped = wrapTextLines(
+    'This is a long line that should cleanly wrap across multiple lines without dropping words.',
+    28
+  );
+  assert.ok(wrapped.length >= 3);
+  for (const line of wrapped) {
+    assert.ok(line.length <= 28, `Wrapped line exceeded 28 chars: ${line}`);
+  }
+
+  const decoder = new TextDecoder('latin1');
+  const emptyPdf = decoder.decode(generateTranscriptPdfBytes([]));
+  assert.ok(emptyPdf.startsWith('%PDF-1.4\n'));
+  assert.ok(emptyPdf.trimEnd().endsWith('%%EOF'));
+  assert.match(emptyPdf, /\/Type \/Catalog/);
+  assert.match(emptyPdf, /No conversation turns recorded in this session\./);
+  assert.match(emptyPdf, /Page 1 of 1/);
+
+  const manyTurns: ConversationTurn[] = Array.from({ length: 36 }, (_, idx) => ({
+    id: `turn-${idx + 1}`,
+    direction: idx % 2 === 0 ? 'signed-to-spoken' : 'spoken-to-caption',
+    text: `Turn ${idx + 1}: Checking prescription pickup counter number ${idx + 1} with clear details.`,
+    timestampMs: new Date(2026, 10, 15, 10, idx % 60, 0).getTime(),
+    languageLabel: idx % 2 === 0 ? 'ASL' : 'Spoken English',
+    gestureCue: idx % 2 === 0 ? 'Open hand gesture toward counter' : undefined,
+  }));
+
+  const multiPdfBytes = generateTranscriptPdfBytes(manyTurns);
+  const multiPdf = decoder.decode(multiPdfBytes);
+  assert.ok(multiPdf.startsWith('%PDF-1.4\n'));
+  assert.ok(multiPdf.trimEnd().endsWith('%%EOF'));
+  assert.match(multiPdf, /\/Type \/Pages \/Kids \[5 0 R 7 0 R/);
+  assert.match(multiPdf, /Page 1 of /);
+  assert.match(multiPdf, /Page 2 of /);
+  assert.match(multiPdf, /Turn 36: Checking prescription pickup counter/);
+});
+
+test('transcribeAudioClip uses v1beta, cleans MIME codecs, and falls back on 404 NOT_FOUND', async () => {
+  const calls: Array<{ apiVersion: string; model: string; mimeType: string; data: string }> = [];
+
+  const transcript = await transcribeAudioClip(
+    {
+      audioBase64: 'data:audio/webm;codecs=opus;base64,AAAA',
+      mimeType: 'audio/webm;codecs=opus',
+    },
+    {
+      clientFactory: (apiVersion) => ({
+        models: {
+          generateContent: async (req) => {
+            const parts = (req.contents as { parts: Array<{ inlineData?: { mimeType: string; data: string } }> }).parts;
+            const inline = parts[0]?.inlineData;
+            calls.push({
+              apiVersion,
+              model: String(req.model),
+              mimeType: inline?.mimeType ?? '',
+              data: inline?.data ?? '',
+            });
+
+            if (req.model === 'gemini-3.5-transcribe') {
+              throw new Error('{"error":{"code":404,"status":"NOT_FOUND"}}');
+            }
+            return { text: '  Yes, I can help you right away.  ' };
+          },
+        },
+      }),
+    }
+  );
+
+  assert.equal(transcript, 'Yes, I can help you right away.');
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], {
+    apiVersion: 'v1beta',
+    model: 'gemini-3.5-transcribe',
+    mimeType: 'audio/webm',
+    data: 'AAAA',
+  });
+  assert.deepEqual(calls[1], {
+    apiVersion: 'v1beta',
+    model: 'gemini-4-hydrogen',
+    mimeType: 'audio/webm',
+    data: 'AAAA',
+  });
+});
+
+

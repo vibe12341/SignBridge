@@ -1,5 +1,6 @@
 import { BridgeConnectionStatus } from '../hooks/useBridgeSession';
 import { WorkspaceTab } from '../types/bridge';
+import SwitchButton from './SwitchButton';
 
 interface TopBarProps {
   activeTab: WorkspaceTab;
@@ -7,6 +8,8 @@ interface TopBarProps {
   connectionStatus: BridgeConnectionStatus;
   onToggleBridge: () => void;
   turnCount: number;
+  theme: 'light' | 'dark';
+  onThemeChange: (theme: 'light' | 'dark') => void;
 }
 
 const NAV_ITEMS: Array<{ id: WorkspaceTab; label: string }> = [
@@ -22,13 +25,15 @@ export function TopBar({
   connectionStatus,
   onToggleBridge,
   turnCount,
+  theme,
+  onThemeChange,
 }: TopBarProps) {
   const isLiveOrConnecting =
     connectionStatus === 'live' || connectionStatus === 'connecting';
 
   return (
     <header className="sticky top-0 z-30 border-b border-stone-200 bg-white/95 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/95">
-      <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-8 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:gap-6 sm:px-6 lg:gap-8 lg:px-8">
         {/* Zone 1: Single-element Brand Wordmark */}
         <a
           href="#top"
@@ -76,13 +81,19 @@ export function TopBar({
           })}
         </nav>
 
-        {/* Zone 3: Single primary action button */}
-        <div className="flex items-center shrink-0">
+        {/* Zone 3: Theme mode switch + primary action button */}
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          <SwitchButton
+            theme={theme}
+            onThemeChange={onThemeChange}
+            size="default"
+            showLabel
+          />
           <button
             type="button"
             onClick={onToggleBridge}
             disabled={connectionStatus === 'connecting'}
-            className={`px-4 py-2 text-sm font-semibold rounded-lg whitespace-nowrap shrink-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 dark:focus-visible:outline-amber-300 disabled:opacity-60 ${
+            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap shrink-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 dark:focus-visible:outline-amber-300 disabled:opacity-60 ${
               isLiveOrConnecting
                 ? 'bg-red-600 text-white hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600'
                 : 'bg-blue-700 text-white hover:bg-blue-800 dark:bg-amber-300 dark:text-slate-950 dark:hover:bg-amber-200'

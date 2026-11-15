@@ -230,28 +230,98 @@ export async function synthesizeSpeech(params: {
   };
 }
 
-export async function transcribeAudioClip(params: {
-  audioBase64: string;
-  mimeType: string;
-}): Promise<string> {
-  const ai = createGenAIClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.5-transcribe',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            mimeType: params.mimeType || 'audio/webm',
-            data: params.audioBase64.replace(/^data:[^;]+;base64,/, ''),
-          },
+export interface TranscribeAttemptClient {
+  models: {
+    generateContent: (
+      params: Parameters<GoogleGenAI['models']['generateContent']>[0]
+    ) => Promise<{ text?: string }>;
+  };
+}
+
+export async function transcribeAudioClip(
+  params: {
+    audioBase64: string;
+    mimeType: string;
+  },
+  options?: {
+    clientFactory?: (apiVersion: 'v1' | 'v1beta', timeout: number) => TranscribeAttemptClient;
+  }
+): Promise<string> {
+  const cleanMimeType =
+    (params.mimeType || 'audio/webm').split(';')[0].trim() || 'audio/webm';
+  const cleanData = params.audioBase64
+    .replace(/^data:[^,]+,/, '')
+    .trim();
+
+  if (!cleanData) {
+    throw new Error('Recorded audio clip is empty.');
+  }
+
+  const contents = {
+    parts: [
+      {
+        inlineData: {
+          mimeType: cleanMimeType,
+          data: cleanData,
         },
-        {
-          text: 'Transcribe the spoken words accurately and concisely with natural punctuation.',
+      },
+      {
+        text: 'Transcribe the spoken words accurately and concisely with natural punctuation. Output only the spoken transcript text, or an empty string if there is no speech.',
+      },
+    ],
+  };
+
+  const attempts: Array<{ model: string; apiVersion: 'v1beta'; timeout: number }> = [
+    { model: 'gemini-3.5-transcribe', apiVersion: 'v1beta', timeout: 15000 },
+    { model: 'gemini-4-hydrogen', apiVersion: 'v1beta', timeout: 15000 },
+    { model: 'gemini-3.1-flash-lite', apiVersion: 'v1beta', timeout: 15000 },
+  ];
+
+  const makeClient =
+    options?.clientFactory ??
+    ((apiVersion: 'v1' | 'v1beta', timeout: number) =>
+      new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          apiVersion,
+          timeout,
+          headers: { 'User-Agent': 'aistudio-build' },
         },
-      ],
-    },
-  });
-  return (response.text ?? '').trim();
+      }));
+
+  if (!options?.clientFactory && !process.env.GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is not configured in the server environment.');
+  }
+
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
+    try {
+      const client = makeClient(attempt.apiVersion, attempt.timeout);
+      const response = await client.models.generateContent({
+        model: attempt.model,
+        contents,
+      });
+      return (response.text ?? '').trim();
+    } catch (err) {
+      lastError = err;
+      console.warn(
+        `[SignBridge] transcribe ${attempt.model} (${attempt.apiVersion}) failed:`,
+        err
+      );
+    }
+  }
+
+  const rawMsg =
+    lastError instanceof Error ? lastError.message : String(lastError ?? '');
+  if (rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE')) {
+    throw new Error(
+      'Audio transcription model is temporarily busy. Please try again in a few seconds.'
+    );
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Unable to transcribe audio clip right now.');
 }
 
 interface LiveBridgeStartPayload {

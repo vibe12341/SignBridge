@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { ConversationStream } from './components/ConversationStream';
+import { DownloadTranscriptMenu } from './components/DownloadTranscriptMenu';
 import { LiveCaptionBanner } from './components/LiveCaptionBanner';
 import { PreferencesPanel } from './components/PreferencesPanel';
 import { QuickPhrasePanel } from './components/QuickPhrasePanel';
@@ -27,8 +28,10 @@ export default function App() {
     const root = document.documentElement;
     if (settings.highContrast) {
       root.classList.add('dark');
+      root.style.colorScheme = 'dark';
     } else {
       root.classList.remove('dark');
+      root.style.colorScheme = 'light';
     }
   }, [settings.highContrast]);
 
@@ -68,6 +71,10 @@ export default function App() {
         connectionStatus={session.connectionStatus}
         onToggleBridge={handleToggleBridge}
         turnCount={session.turns.length}
+        theme={settings.highContrast ? 'dark' : 'light'}
+        onThemeChange={(nextTheme) =>
+          updateSettings({ highContrast: nextTheme === 'dark' })
+        }
       />
 
       <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8">
@@ -170,13 +177,16 @@ export default function App() {
 
         {activeTab === 'transcript' && (
           <div className="mx-auto max-w-4xl space-y-6">
-            <div>
-              <h1 className="font-display text-2xl font-bold tracking-tight text-stone-950 dark:text-white">
-                Session Transcript
-              </h1>
-              <p className="mt-1 text-sm text-stone-600 dark:text-slate-300">
-                Search, filter, replay spoken audio, or export the full two-way conversation log.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h1 className="font-display text-2xl font-bold tracking-tight text-stone-950 dark:text-white">
+                  Session Transcript
+                </h1>
+                <p className="mt-1 text-sm text-stone-600 dark:text-slate-300">
+                  Search, filter, replay spoken audio, or export the full two-way conversation log.
+                </p>
+              </div>
+              <DownloadTranscriptMenu turns={session.turns} />
             </div>
             <ConversationStream
               turns={session.turns}
