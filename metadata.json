@@ -1,0 +1,6 @@
+{
+  "name": "SignBridge",
+  "description": "Real-time webcam and microphone communication bridge translating hand gestures and facial expressions into spoken audio and transcribing spoken replies on screen.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
